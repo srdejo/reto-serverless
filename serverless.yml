@@ -36,8 +36,12 @@ functions:
   createUser:
     runtime: java21
     handler: co.srdejo.users.CreateUserHandler::handleRequest
+    timeout: 29
+    role: CreateUserRole
     package:
       artifact: java/build/libs/users-1.0.0.jar
+    environment:
+      QUEUE_URL: !Ref UsersQueue
     events:
       - httpApi:
           method: POST
@@ -54,6 +58,7 @@ functions:
   deleteUser:
     runtime: java21
     handler: co.srdejo.users.DeleteUserHandler::handleRequest
+    timeout: 29
     package:
       artifact: java/build/libs/users-1.0.0.jar
     events:
@@ -61,10 +66,19 @@ functions:
           method: DELETE
           path: /users/{id}
 
+  enviarCorreos:
+    runtime: nodejs20.x
+    handler: node/enviarCorreos.handler
+    role: EnviarCorreosRole
+    environment:
+      TOPIC_ARN: !Ref UsersTopic
+    events:
+      - sqs:
+          arn: !GetAtt UsersQueue.Arn
+          batchSize: 5
+
 resources:
   Resources:
-    # Privada: sin políticas de recurso; solo el rol IAM de las lambdas puede acceder.
-    # Solo se declara la clave (id); nombre y email son atributos sin esquema.
     UsersTable:
       Type: AWS::DynamoDB::Table
       Properties:
@@ -76,3 +90,119 @@ resources:
         KeySchema:
           - AttributeName: id
             KeyType: HASH
+
+    UsersQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-users-${sls:stage}
+        VisibilityTimeout: 60
+        SqsManagedSseEnabled: true
+
+    UsersQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref UsersQueue
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: SoloCreateUserEnvia
+              Effect: Deny
+              Principal: '*'
+              Action: sqs:SendMessage
+              Resource: !GetAtt UsersQueue.Arn
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: !GetAtt CreateUserRole.Arn
+            - Sid: SoloEnviarCorreosConsume
+              Effect: Deny
+              Principal: '*'
+              Action:
+                - sqs:ReceiveMessage
+                - sqs:DeleteMessage
+                - sqs:ChangeMessageVisibility
+              Resource: !GetAtt UsersQueue.Arn
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: !GetAtt EnviarCorreosRole.Arn
+
+    UsersTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-correos-${sls:stage}
+
+    UsersTopicSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref UsersTopic
+        Protocol: email
+        Endpoint: ${env:NOTIFY_EMAIL}
+
+    UsersTopicPolicy:
+      Type: AWS::SNS::TopicPolicy
+      Properties:
+        Topics:
+          - !Ref UsersTopic
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: SoloEnviarCorreosPublica
+              Effect: Deny
+              Principal: '*'
+              Action: sns:Publish
+              Resource: !Ref UsersTopic
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: !GetAtt EnviarCorreosRole.Arn
+
+    CreateUserRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: lambda.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        Policies:
+          - PolicyName: create-user
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: dynamodb:PutItem
+                  Resource: !GetAtt UsersTable.Arn
+                - Effect: Allow
+                  Action: sqs:SendMessage
+                  Resource: !GetAtt UsersQueue.Arn
+
+    EnviarCorreosRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: lambda.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        Policies:
+          - PolicyName: enviar-correos
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - sqs:ReceiveMessage
+                    - sqs:DeleteMessage
+                    - sqs:GetQueueAttributes
+                    - sqs:ChangeMessageVisibility
+                  Resource: !GetAtt UsersQueue.Arn
+                - Effect: Allow
+                  Action: sns:Publish
+                  Resource: !Ref UsersTopic
