@@ -1,0 +1,24 @@
+# package directories
+node_modules
+jspm_packages
+
+# Serverless directories
+.serverless
+# Java / Gradle
+java/build/
+java/.gradle/
+java/bin/
+java/out/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+
+# Env / OS
+.env
+.DS_Store
+Thumbs.db

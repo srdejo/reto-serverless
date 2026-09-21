@@ -1,0 +1,44 @@
+service: reto-serverless
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  region: us-east-1
+
+functions:
+
+  getUsers:
+    runtime: nodejs20.x
+    handler: node/getUsers.handler
+    events:
+      - httpApi:
+          method: GET
+          path: /users
+
+  createUser:
+    runtime: java21
+    handler: co.srdejo.users.CreateUserHandler::handleRequest
+    package:
+      artifact: java/build/libs/users-1.0.0.jar
+    events:
+      - httpApi:
+          method: POST
+          path: /users
+
+  updateUser:
+    runtime: nodejs20.x
+    handler: node/updateUsers.handler
+    events:
+      - httpApi:
+          method: PUT
+          path: /users/{id}
+
+  deleteUser:
+    runtime: java21
+    handler: co.srdejo.users.DeleteUserHandler::handleRequest
+    package:
+      artifact: java/build/libs/users-1.0.0.jar
+    events:
+      - httpApi:
+          method: DELETE
+          path: /users/{id}
