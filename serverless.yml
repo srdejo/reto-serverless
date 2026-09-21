@@ -1,9 +1,27 @@
 service: reto-serverless
 frameworkVersion: '3'
 
+package:
+  patterns:
+    - '!java/**'
+    - '!evento*.json'
+
 provider:
   name: aws
   region: us-east-1
+  environment:
+    USERS_TABLE: ${self:service}-users-${sls:stage}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Scan
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource:
+            - !GetAtt UsersTable.Arn
 
 functions:
 
@@ -42,3 +60,19 @@ functions:
       - httpApi:
           method: DELETE
           path: /users/{id}
+
+resources:
+  Resources:
+    # Privada: sin políticas de recurso; solo el rol IAM de las lambdas puede acceder.
+    # Solo se declara la clave (id); nombre y email son atributos sin esquema.
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.USERS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
