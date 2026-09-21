@@ -9,6 +9,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 import java.util.Map;
 import java.util.UUID;
@@ -17,6 +19,8 @@ public class CreateUserHandler implements RequestHandler<APIGatewayV2HTTPEvent, 
 
     private static final DynamoDbClient DYNAMO = DynamoDbClient.create();
     private static final String TABLE = System.getenv("USERS_TABLE");
+    private static final SqsClient SQS = SqsClient.create();
+    private static final String QUEUE_URL = System.getenv("QUEUE_URL");
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Override
@@ -36,6 +40,12 @@ public class CreateUserHandler implements RequestHandler<APIGatewayV2HTTPEvent, 
                     .build());
 
             String json = MAPPER.writeValueAsString(Map.of("id", id, "nombre", nombre, "email", email));
+
+            SQS.sendMessage(SendMessageRequest.builder()
+                    .queueUrl(QUEUE_URL)
+                    .messageBody(json)
+                    .build());
+
             return response(201, json);
         } catch (Exception e) {
             context.getLogger().log("Error creando usuario: " + e);
